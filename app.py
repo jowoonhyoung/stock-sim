@@ -227,13 +227,18 @@ with tab1:
         current_price = avg_price
 
       eval_value = shares * current_price
+      buy_total_value = shares * avg_price
+
       if is_us:
         eval_value_krw = eval_value * usd_krw
+        buy_total_krw = buy_total_value * usd_krw
         total_stock_value += eval_value_krw
-        profit_loss_krw = eval_value_krw - (shares * avg_price * usd_krw)
+        profit_loss_krw = eval_value_krw - buy_total_krw
       else:
+        eval_value_krw = eval_value
+        buy_total_krw = buy_total_value
         total_stock_value += eval_value
-        profit_loss_krw = eval_value - (shares * avg_price)
+        profit_loss_krw = eval_value - buy_total_value
 
       profit_loss_pct = (
           ((current_price - avg_price) / avg_price) * 100
@@ -246,8 +251,13 @@ with tab1:
           "종목코드": ticker,
           "보유수량": shares,
           "매입단가": f"{avg_price:,.2f}" + (" USD" if is_us else " 원"),
+          "총 매수금액": (
+              f"{buy_total_krw:,.0f} 원"
+              if is_us
+              else f"{buy_total_value:,.0f} 원"
+          ),
           "현재주가": f"{current_price:,.2f}" + (" USD" if is_us else " 원"),
-          "평가금액": format_krw(eval_value_krw if is_us else eval_value),
+          "평가금액": format_krw(eval_value_krw),
           "손익": f"{profit_loss_krw:+,.0f} 원 ({profit_loss_pct:+.2f}%)",
           "투자메모": memo,
       })
@@ -313,7 +323,6 @@ with tab2:
           " 연습을 할 수 있는 모드입니다."
       )
 
-      # 💡 [추가됨] 자유 가격 입력 모드 내 시장 구분 선택
       manual_market_choice = st.radio(
           "시장 구분 선택 (통화 단위 결정)",
           [
@@ -331,7 +340,6 @@ with tab2:
           "🔍 종목 코드 또는 티커 임의 입력 (예: 005930)", value="005930"
       ).strip()
 
-      # 시장 선택에 따라 티커에 접미사(.KS, .KQ) 부착 및 통화 플래그 설정
       if "코스피" in manual_market_choice:
         target_ticker = (
             raw_manual_ticker + ".KS"
@@ -362,7 +370,6 @@ with tab2:
       )
       execution_price = manual_price
 
-      # 원화 환산 비용 계산
       execution_cost_krw = execution_price * usd_krw if is_us else execution_price
 
       if target_ticker in acc_dict["portfolio"]:
@@ -671,7 +678,7 @@ with tab2:
 
         acc_dict["history"].append({
             "시간": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "유형": "매도",
+            "유형": "매수/매도 복기",
             "종목명": stock_name,
             "종목코드": ticker_input,
             "수량": shares_to_sell,
