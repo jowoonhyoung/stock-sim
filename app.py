@@ -147,7 +147,7 @@ if st.sidebar.button("🚨 계좌 전체 리셋 (초기화)"):
 st.sidebar.markdown("---")
 st.sidebar.info("""
 💡 **사용 안내:**
-* **매수 시**: 신규 매수 또는 보유 종목 추가 매수(물타기/불타기), 지정가 매수를 지원합니다.
+* **매수 시**: 신규 매수, 추가 매수(물타기/불타기), 그리고 **자유 가격 입력(수동 연습용)**을 지원합니다.
 * **매도 시**: 현재가 또는 지정가(예약) 매도가 가능합니다.
 """)
 
@@ -239,11 +239,15 @@ with tab2:
   usd_krw = get_usd_krw_rate()
 
   if trade_type == "매수 (Buy)":
-    st.subheader("🚀 주식 매수하기 (신규 및 물타기/불타기 지원)")
+    st.subheader("🚀 주식 매수하기 (신규, 물타기 및 자유 가격 입력 지원)")
 
     buy_mode = st.radio(
         "매수 방식 선택",
-        ["신규 종목 매수", "보유 종목 추가 매수 (물타기/불타기)"],
+        [
+            "신규 종목 매수 (실시간 연동)",
+            "보유 종목 추가 매수 (실시간 연동)",
+            "🛠️ 자유 가격 입력 매수 (수동/강제 연습용)",
+        ],
         horizontal=True,
     )
 
@@ -251,174 +255,279 @@ with tab2:
     stock_name_input = ""
     current_price = 0.0
     is_us = False
+    use_manual_input = False
 
-    if buy_mode == "신규 종목 매수":
-      market_choice = st.radio(
-          "시장 구분 선택",
-          [
-              "🇰🇷 국내 주식 - 코스피 (KS)",
-              "🇰🇷 국내 주식 - 코스닥 (KQ)",
-              "🇺🇸 해외 주식 (영문 티커)",
-          ],
-          horizontal=True,
+    if buy_mode == "🛠️ 자유 가격 입력 매수 (수동/강제 연습용)":
+      use_manual_input = True
+      st.info(
+          "💡 실시간 주가 조회 없이, 원하는 종목명과 가격(예: 물린 평단가인"
+          " 32,000원 등)을 마음대로 입력하여 물타기 연습을 할 수 있는 모드입니다."
       )
 
       stock_name_input = st.text_input(
-          "🏷️ 종목 이름 입력 (예: 삼성전자, 애플)", value=""
+          "🏷️ 연습할 종목 이름 (예: 삼성전자)", value="삼성전자"
       ).strip()
-      raw_ticker_input = st.text_input(
-          "🔍 종목 코드 또는 티커 입력 (예: 코스피는 '005930', 해외는 'AAPL')",
-          value="",
+      target_ticker = st.text_input(
+          "🔍 종목 코드 또는 티커 임의 입력 (예: 005930 또는 MANUAL_01)",
+          value="005930",
       ).strip()
 
-      if "코스피" in market_choice:
-        target_ticker = (
-            raw_ticker_input + ".KS"
-            if raw_ticker_input.isdigit()
-            else raw_ticker_input.upper()
-        )
-      elif "코스닥" in market_choice:
-        target_ticker = (
-            raw_ticker_input + ".KQ"
-            if raw_ticker_input.isdigit()
-            else raw_ticker_input.upper()
-        )
-      else:
-        target_ticker = raw_ticker_input.upper()
-        is_us = True
+      manual_price = st.number_input(
+          "🎯 강제 지정 매수 가격 입력 (원)",
+          min_value=0.01,
+          value=32000.0,
+          step=100.0,
+      )
+      execution_price = manual_price
+      execution_cost_krw = manual_price
 
-    else:  # 보유 종목 추가 매수
-      if st.session_state.portfolio:
-        portfolio_options = {
-            f"{info['name']} ({ticker})": ticker
-            for ticker, info in st.session_state.portfolio.items()
-        }
-        selected_display = st.selectbox(
-            "추가 매수할 보유 종목 선택", list(portfolio_options.keys())
-        )
-        target_ticker = portfolio_options[selected_display]
-        stock_name_input = st.session_state.portfolio[target_ticker]["name"]
-        is_us = not target_ticker.endswith((".KS", ".KQ"))
-      else:
+      # 보유 중인 종목이면 기존 수량/평단가 안내
+      if target_ticker in st.session_state.portfolio:
+        p_info = st.session_state.portfolio[target_ticker]
         st.warning(
-            "보유 중인 종목이 없습니다. 먼저 신규 매수를 진행해 주세요."
+            f"⚠️ 현재 포트폴리오에 있는 종목입니다. (현재 보유: {p_info['shares']}주"
+            f" / 기존 평단가: {p_info['avg_price']:,.2f}원)"
         )
-        target_ticker = ""
 
-    if target_ticker and stock_name_input:
-      try:
-        stock = yf.Ticker(target_ticker)
-        hist = stock.history(period="1d")
-        if not hist.empty:
-          current_price = hist["Close"].iloc[-1]
+      max_buyable = (
+          int(st.session_state.cash // execution_cost_krw)
+          if execution_cost_krw > 0
+          else 0
+      )
+      shares_to_buy = st.number_input(
+          "매수 수량", min_value=1, max_value=max(1, max_buyable), value=1
+      )
+      memo_input = st.text_area(
+          "📝 물타기/불타기 투자 아이디어 및 매수 사유 메모",
+          "자유 가격 입력 물타기 연습",
+      )
 
-          # 가격 및 단위 표시 준비
-          if is_us:
-            price_krw = current_price * usd_krw
-            price_str = (
-                f"{current_price:,.2f} USD ({format_krw(price_krw)})"
-            )
-            unit_cost_for_cash = price_krw
+      total_cost_krw = shares_to_buy * execution_cost_krw
+      st.info(
+          f"필요한 매수 총액: **{total_cost_krw:,.2f} 원"
+          f" ({format_krw(total_cost_krw)})** (보유 현금:"
+          f" {format_krw(st.session_state.cash)})"
+      )
+
+      if st.button("🚀 자유 가격 매수/물타기 확정"):
+        if st.session_state.cash >= total_cost_krw:
+          st.session_state.cash -= total_cost_krw
+
+          # 포트폴리오 반영 (평단가 재계산)
+          if target_ticker in st.session_state.portfolio:
+            old_shares = st.session_state.portfolio[target_ticker]["shares"]
+            old_avg = st.session_state.portfolio[target_ticker]["avg_price"]
+            new_shares = old_shares + shares_to_buy
+            new_avg = (
+                (old_shares * old_avg) + (shares_to_buy * execution_price)
+            ) / new_shares
+
+            st.session_state.portfolio[target_ticker]["shares"] = new_shares
+            st.session_state.portfolio[target_ticker]["avg_price"] = new_avg
+            if memo_input:
+              st.session_state.portfolio[target_ticker][
+                  "memo"
+              ] += f" | {memo_input}"
           else:
-            price_str = f"{current_price:,.2f} 원 ({format_krw(current_price)})"
-            unit_cost_for_cash = current_price
+            st.session_state.portfolio[target_ticker] = {
+                "name": stock_name_input,
+                "shares": shares_to_buy,
+                "avg_price": execution_price,
+                "memo": memo_input,
+            }
 
+          st.session_state.history.append({
+              "시간": datetime.now().strftime("%Y-%m-%d %H:%M"),
+              "유형": "자유가격매수(물타기)",
+              "종목명": stock_name_input,
+              "종목코드": target_ticker,
+              "수량": shares_to_buy,
+              "가격": execution_price,
+              "메모": memo_input,
+          })
+          save_data()
           st.success(
-              f"조회된 종목: **{stock_name_input} ({target_ticker})** | 현재"
-              f" 실시간 주가: **{price_str}**"
+              f"[{stock_name_input}] 가격 {execution_price:,.2f}원으로"
+              f" {shares_to_buy}주 매수(물타기) 완료!"
           )
-
-          # 지정가 매수 옵션
-          order_type = st.radio(
-              "매수 주문 유형",
-              ["시장가 (즉시 매수)", "지정가 (목표가 도달 시 예약 매수)"],
-              horizontal=True,
-          )
-          execution_price = current_price
-          if "지정가" in order_type:
-            execution_price = st.number_input(
-                "🎯 희망 매수 가격 입력",
-                min_value=0.01,
-                value=float(current_price),
-                step=100.0 if not is_us else 1.0,
-            )
-            execution_cost_krw = (
-                execution_price * usd_krw if is_us else execution_price
-            )
-          else:
-            execution_cost_krw = unit_cost_for_cash
-
-          max_buyable = (
-              int(st.session_state.cash // execution_cost_krw)
-              if execution_cost_krw > 0
-              else 0
-          )
-          shares_to_buy = st.number_input(
-              "매수 수량", min_value=1, max_value=max(1, max_buyable), value=1
-          )
-          memo_input = st.text_area(
-              "📝 투자 아이디어 & 추가 매수(물타기/불타기) 사유 메모", ""
-          )
-
-          total_cost_krw = shares_to_buy * execution_cost_krw
-          st.info(
-              f"필요한 매수 총액: **{total_cost_krw:,.2f} 원"
-              f" ({format_krw(total_cost_krw)})** (보유 현금:"
-              f" {format_krw(st.session_state.cash)})"
-          )
-
-          if st.button("🚀 매수 확정"):
-            if st.session_state.cash >= total_cost_krw:
-              st.session_state.cash -= total_cost_krw
-
-              # 포트폴리오 반영 (평단가 재계산)
-              if target_ticker in st.session_state.portfolio:
-                old_shares = st.session_state.portfolio[target_ticker]["shares"]
-                old_avg = st.session_state.portfolio[target_ticker]["avg_price"]
-                new_shares = old_shares + shares_to_buy
-                new_avg = (
-                    (old_shares * old_avg)
-                    + (shares_to_buy * execution_price)
-                ) / new_shares
-
-                st.session_state.portfolio[target_ticker][
-                    "shares"
-                ] = new_shares
-                st.session_state.portfolio[target_ticker][
-                    "avg_price"
-                ] = new_avg
-                if memo_input:
-                  st.session_state.portfolio[target_ticker][
-                      "memo"
-                  ] += f" | {memo_input}"
-              else:
-                st.session_state.portfolio[target_ticker] = {
-                    "name": stock_name_input,
-                    "shares": shares_to_buy,
-                    "avg_price": execution_price,
-                    "memo": memo_input,
-                }
-
-              st.session_state.history.append({
-                  "시간": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                  "유형": (
-                      "추가매수" if buy_mode != "신규 종목 매수" else "매수"
-                  ),
-                  "종목명": stock_name_input,
-                  "종목코드": target_ticker,
-                  "수량": shares_to_buy,
-                  "가격": execution_price,
-                  "메모": memo_input,
-              })
-              save_data()
-              st.success(f"[{stock_name_input}] {shares_to_buy}주 매수 완료!")
-              st.rerun()
-            else:
-              st.error("현금이 부족합니다!")
+          st.rerun()
         else:
-          st.error("해당 종목의 주가 데이터를 찾을 수 없습니다.")
-      except Exception as e:
-        st.error(f"주가 조회 중 오류 발생: {e}")
+          st.error("현금이 부족합니다!")
+
+    else:
+      # 기존 실시간 연동 매수 로직
+      if buy_mode == "신규 종목 매수 (실시간 연동)":
+        market_choice = st.radio(
+            "시장 구분 선택",
+            [
+                "🇰🇷 국내 주식 - 코스피 (KS)",
+                "🇰🇷 국내 주식 - 코스닥 (KQ)",
+                "🇺🇸 해외 주식 (영문 티커)",
+            ],
+            horizontal=True,
+        )
+
+        stock_name_input = st.text_input(
+            "🏷️ 종목 이름 입력 (예: 삼성전자, 애플)", value=""
+        ).strip()
+        raw_ticker_input = st.text_input(
+            "🔍 종목 코드 또는 티커 입력 (예: 코스피는 '005930', 해외는 'AAPL')",
+            value="",
+        ).strip()
+
+        if "코스피" in market_choice:
+          target_ticker = (
+              raw_ticker_input + ".KS"
+              if raw_ticker_input.isdigit()
+              else raw_ticker_input.upper()
+          )
+        elif "코스닥" in market_choice:
+          target_ticker = (
+              raw_ticker_input + ".KQ"
+              if raw_ticker_input.isdigit()
+              else raw_ticker_input.upper()
+          )
+        else:
+          target_ticker = raw_ticker_input.upper()
+          is_us = True
+
+      else:  # 보유 종목 추가 매수 (실시간 연동)
+        if st.session_state.portfolio:
+          portfolio_options = {
+              f"{info['name']} ({ticker})": ticker
+              for ticker, info in st.session_state.portfolio.items()
+          }
+          selected_display = st.selectbox(
+              "추가 매수할 보유 종목 선택", list(portfolio_options.keys())
+          )
+          target_ticker = portfolio_options[selected_display]
+          stock_name_input = st.session_state.portfolio[target_ticker]["name"]
+          is_us = not target_ticker.endswith((".KS", ".KQ"))
+        else:
+          st.warning(
+              "보유 중인 종목이 없습니다. 먼저 신규 매수를 진행하거나 [자유 가격"
+              " 입력 매수]를 이용해 주세요."
+          )
+          target_ticker = ""
+
+      if target_ticker and stock_name_input:
+        try:
+          stock = yf.Ticker(target_ticker)
+          hist = stock.history(period="1d")
+          if not hist.empty:
+            current_price = hist["Close"].iloc[-1]
+
+            if is_us:
+              price_krw = current_price * usd_krw
+              price_str = (
+                  f"{current_price:,.2f} USD ({format_krw(price_krw)})"
+              )
+              unit_cost_for_cash = price_krw
+            else:
+              price_str = (
+                  f"{current_price:,.2f} 원 ({format_krw(current_price)})"
+              )
+              unit_cost_for_cash = current_price
+
+            st.success(
+                f"조회된 종목: **{stock_name_input} ({target_ticker})** | 현재"
+                f" 실시간 주가: **{price_str}**"
+            )
+
+            order_type = st.radio(
+                "매수 주문 유형",
+                ["시장가 (즉시 매수)", "지정가 (목표가 도달 시 예약 매수)"],
+                horizontal=True,
+            )
+            execution_price = current_price
+            if "지정가" in order_type:
+              execution_price = st.number_input(
+                  "🎯 희망 매수 가격 입력",
+                  min_value=0.01,
+                  value=float(current_price),
+                  step=100.0 if not is_us else 1.0,
+              )
+              execution_cost_krw = (
+                  execution_price * usd_krw if is_us else execution_price
+              )
+            else:
+              execution_cost_krw = unit_cost_for_cash
+
+            max_buyable = (
+                int(st.session_state.cash // execution_cost_krw)
+                if execution_cost_krw > 0
+                else 0
+            )
+            shares_to_buy = st.number_input(
+                "매수 수량", min_value=1, max_value=max(1, max_buyable), value=1
+            )
+            memo_input = st.text_area(
+                "📝 투자 아이디어 & 추가 매수(물타기/불타기) 사유 메모", ""
+            )
+
+            total_cost_krw = shares_to_buy * execution_cost_krw
+            st.info(
+                f"필요한 매수 총액: **{total_cost_krw:,.2f} 원"
+                f" ({format_krw(total_cost_krw)})** (보유 현금:"
+                f" {format_krw(st.session_state.cash)})"
+            )
+
+            if st.button("🚀 매수 확정"):
+              if st.session_state.cash >= total_cost_krw:
+                st.session_state.cash -= total_cost_krw
+
+                if target_ticker in st.session_state.portfolio:
+                  old_shares = st.session_state.portfolio[target_ticker][
+                      "shares"
+                  ]
+                  old_avg = st.session_state.portfolio[target_ticker][
+                      "avg_price"
+                  ]
+                  new_shares = old_shares + shares_to_buy
+                  new_avg = (
+                      (old_shares * old_avg) + (shares_to_buy * execution_price)
+                  ) / new_shares
+
+                  st.session_state.portfolio[target_ticker][
+                      "shares"
+                  ] = new_shares
+                  st.session_state.portfolio[target_ticker][
+                      "avg_price"
+                  ] = new_avg
+                  if memo_input:
+                    st.session_state.portfolio[target_ticker][
+                        "memo"
+                    ] += f" | {memo_input}"
+                else:
+                  st.session_state.portfolio[target_ticker] = {
+                      "name": stock_name_input,
+                      "shares": shares_to_buy,
+                      "avg_price": execution_price,
+                      "memo": memo_input,
+                  }
+
+                st.session_state.history.append({
+                    "시간": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "유형": (
+                        "추가매수" if buy_mode != "신규 종목 매수" else "매수"
+                    ),
+                    "종목명": stock_name_input,
+                    "종목코드": target_ticker,
+                    "수량": shares_to_buy,
+                    "가격": execution_price,
+                    "메모": memo_input,
+                })
+                save_data()
+                st.success(
+                    f"[{stock_name_input}] {shares_to_buy}주 매수 완료!"
+                )
+                st.rerun()
+              else:
+                st.error("현금이 부족합니다!")
+          else:
+            st.error("해당 종목의 주가 데이터를 찾을 수 없습니다.")
+        except Exception as e:
+          st.error(f"주가 조회 중 오류 발생: {e}")
 
   else:  # 매도 (보유 종목 불러오기 & 지정가 예약 매도)
     st.subheader("📉 주식 매도하기 (예약/지정가 지원)")
