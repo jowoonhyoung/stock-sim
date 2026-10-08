@@ -20,7 +20,6 @@ def load_data():
         return json.load(f)
     except:
       pass
-  # 기본 구조 (기본 계좌 1개 포함)
   return {
       "accounts": {
           "계좌 1 (삼성증권)": {
@@ -44,7 +43,6 @@ def save_data(data):
 if "app_data" not in st.session_state:
   st.session_state.app_data = load_data()
 
-# 세션 편의 참조
 if "accounts" not in st.session_state.app_data:
   st.session_state.app_data["accounts"] = {
       "계좌 1 (삼성증권)": {
@@ -121,7 +119,6 @@ st.markdown(
 # --- 사이드바: 멀티 계좌 관리 센터 ---
 st.sidebar.header("🏦 계좌 관리 센터")
 
-# 1. 활성 계좌 선택
 account_list = list(st.session_state.app_data["accounts"].keys())
 selected_active = st.sidebar.selectbox(
     "조회/거래할 계좌 선택 (활성 계좌)",
@@ -133,7 +130,6 @@ if selected_active != current_acc_name:
   save_data(st.session_state.app_data)
   st.rerun()
 
-# 2. 계좌 추가하기
 with st.sidebar.expander("➕ 새 증권사 계좌 추가하기", expanded=False):
   new_acc_title = st.text_input(
       "계좌 이름/증권사 입력", value="계좌 2 (미래에셋증권)"
@@ -160,7 +156,6 @@ with st.sidebar.expander("➕ 새 증권사 계좌 추가하기", expanded=False
       )
       st.rerun()
 
-# 3. 현재 활성 계좌 자산 설정 및 리셋
 with st.sidebar.expander(
     f"🛠️ [{current_acc_name}] 자산 설정", expanded=False
 ):
@@ -185,7 +180,6 @@ with st.sidebar.expander(
     acc_dict["cash"] += float(add_amount)
     acc_dict["initial_cash"] += float(add_amount)
     save_data(st.session_state.app_data)
-    # 💡 수정된 부분: 닫는 중괄호 누락 오류 해결 완료
     st.success(f"{add_amount:,.0f}원이 추가되었습니다!")
     st.rerun()
 
@@ -206,7 +200,6 @@ st.sidebar.info("""
 * 각 계좌별로 독립된 예수금과 보유 종목 리스트가 유지됩니다.
 """)
 
-# 탭 메뉴 구성
 tab1, tab2, tab3 = st.tabs(
     ["💰 자산 및 포트폴리오", "🛒 주식 매수/매도", "📜 거래 및 투자 노트 복기"]
 )
@@ -316,31 +309,68 @@ with tab2:
 
     if buy_mode == "🛠️ 자유 가격 입력 매수 (수동/강제 연습용)":
       st.info(
-          "💡 실시간 주가 조회 없이 원하는 가격(예: 물린 평단가인 32,000원 등)을"
-          " 자유롭게 입력하여 물타기 연습을 할 수 있는 모드입니다."
+          "💡 실시간 주가 조회 없이 원하는 가격을 자유롭게 입력하여 물타기"
+          " 연습을 할 수 있는 모드입니다."
+      )
+
+      # 💡 [추가됨] 자유 가격 입력 모드 내 시장 구분 선택
+      manual_market_choice = st.radio(
+          "시장 구분 선택 (통화 단위 결정)",
+          [
+              "🇰🇷 국내 주식 - 코스피 (원화 단가)",
+              "🇰🇷 국내 주식 - 코스닥 (원화 단가)",
+              "🇺🇸 해외 주식 (달러 단가)",
+          ],
+          horizontal=True,
       )
 
       stock_name_input = st.text_input(
           "🏷️ 연습할 종목 이름 (예: 삼성전자)", value="삼성전자"
       ).strip()
-      target_ticker = st.text_input(
+      raw_manual_ticker = st.text_input(
           "🔍 종목 코드 또는 티커 임의 입력 (예: 005930)", value="005930"
       ).strip()
 
+      # 시장 선택에 따라 티커에 접미사(.KS, .KQ) 부착 및 통화 플래그 설정
+      if "코스피" in manual_market_choice:
+        target_ticker = (
+            raw_manual_ticker + ".KS"
+            if raw_manual_ticker.isdigit()
+            else raw_manual_ticker.upper()
+        )
+        is_us = False
+      elif "코스닥" in manual_market_choice:
+        target_ticker = (
+            raw_manual_ticker + ".KQ"
+            if raw_manual_ticker.isdigit()
+            else raw_manual_ticker.upper()
+        )
+        is_us = False
+      else:
+        target_ticker = raw_manual_ticker.upper()
+        is_us = True
+
       manual_price = st.number_input(
-          "🎯 강제 지정 매수 가격 입력 (원)",
+          (
+              "🎯 강제 지정 매수 가격 입력 (원)"
+              if not is_us
+              else "🎯 강제 지정 매수 가격 입력 (USD)"
+          ),
           min_value=0.01,
-          value=320000.0,
-          step=100.0,
+          value=320000.0 if not is_us else 100.0,
+          step=100.0 if not is_us else 1.0,
       )
       execution_price = manual_price
-      execution_cost_krw = manual_price
+
+      # 원화 환산 비용 계산
+      execution_cost_krw = execution_price * usd_krw if is_us else execution_price
 
       if target_ticker in acc_dict["portfolio"]:
         p_info = acc_dict["portfolio"][target_ticker]
         st.warning(
             f"⚠️ 이 계좌에 이미 있는 종목입니다. (현재 보유: {p_info['shares']}주"
-            f" / 기존 평단가: {p_info['avg_price']:,.2f}원)"
+            f" / 기존 평단가: {p_info['avg_price']:,.2f}"
+            f" {'USD' if is_us else '원'})"
         )
 
       max_buyable = (
@@ -393,12 +423,14 @@ with tab2:
               "종목코드": target_ticker,
               "수량": shares_to_buy,
               "가격": execution_price,
+              "통화": "USD" if is_us else "KRW",
               "메모": memo_input,
           })
           save_data(st.session_state.app_data)
           st.success(
               f"[{current_acc_name}] [{stock_name_input}] 가격"
-              f" {execution_price:,.2f}원으로 {shares_to_buy}주 매수 완료!"
+              f" {execution_price:,.2f}"
+              f" {'USD' if is_us else '원'}으로 {shares_to_buy}주 매수 완료!"
           )
           st.rerun()
         else:
