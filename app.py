@@ -42,11 +42,11 @@ def save_data(data):
 
 # 세션 초기화
 if "app_data" not in st.session_state:
-  st.session_state.app_Data = load_data()
+  st.session_state.app_data = load_data()
 
 # 세션 편의 참조
-if "accounts" not in st.session_state.app_Data:
-  st.session_state.app_Data["accounts"] = {
+if "accounts" not in st.session_state.app_data:
+  st.session_state.app_data["accounts"] = {
       "계좌 1 (삼성증권)": {
           "cash": 10000000.0,
           "initial_cash": 10000000.0,
@@ -54,15 +54,15 @@ if "accounts" not in st.session_state.app_Data:
           "history": [],
       }
   }
-if "active_account" not in st.session_state.app_Data or st.session_state.app_Data[
+if "active_account" not in st.session_state.app_data or st.session_state.app_data[
     "active_account"
-] not in st.session_state.app_Data["accounts"]:
-  st.session_state.app_Data["active_account"] = list(
-      st.session_state.app_Data["accounts"].keys()
+] not in st.session_state.app_data["accounts"]:
+  st.session_state.app_data["active_account"] = list(
+      st.session_state.app_data["accounts"].keys()
   )[0]
 
-current_acc_name = st.session_state.app_Data["active_account"]
-acc_dict = st.session_state.app_Data["accounts"][current_acc_name]
+current_acc_name = st.session_state.app_data["active_account"]
+acc_dict = st.session_state.app_data["accounts"][current_acc_name]
 
 
 # 한글 금액 변환 유틸리티 함수
@@ -122,15 +122,15 @@ st.markdown(
 st.sidebar.header("🏦 계좌 관리 센터")
 
 # 1. 활성 계좌 선택
-account_list = list(st.session_state.app_Data["accounts"].keys())
+account_list = list(st.session_state.app_data["accounts"].keys())
 selected_active = st.sidebar.selectbox(
     "조회/거래할 계좌 선택 (활성 계좌)",
     account_list,
     index=account_list.index(current_acc_name),
 )
 if selected_active != current_acc_name:
-  st.session_state.app_Data["active_account"] = selected_active
-  save_data(st.session_state.app_Data)
+  st.session_state.app_data["active_account"] = selected_active
+  save_data(st.session_state.app_data)
   st.rerun()
 
 # 2. 계좌 추가하기
@@ -142,19 +142,19 @@ with st.sidebar.expander("➕ 새 증권사 계좌 추가하기", expanded=False
       "초기 자본금 (원)", value=10000000, step=1000000
   )
   if st.button("계좌 생성하기"):
-    if new_acc_title in st.session_state.app_Data["accounts"]:
+    if new_acc_title in st.session_state.app_data["accounts"]:
       st.sidebar.error("이미 존재하는 계좌 이름입니다.")
     elif not new_acc_title:
       st.sidebar.error("계좌 이름을 입력해 주세요.")
     else:
-      st.session_state.app_Data["accounts"][new_acc_title] = {
+      st.session_state.app_data["accounts"][new_acc_title] = {
           "cash": float(new_acc_init_cash),
           "initial_cash": float(new_acc_init_cash),
           "portfolio": {},
           "history": [],
       }
-      st.session_state.app_Data["active_account"] = new_acc_title
-      save_data(st.session_state.app_Data)
+      st.session_state.app_data["active_account"] = new_acc_title
+      save_data(st.session_state.app_data)
       st.sidebar.success(
           f"'{new_acc_title}' 계좌가 생성되고 활성화되었습니다!"
       )
@@ -174,7 +174,7 @@ with st.sidebar.expander(
     acc_dict["cash"] += diff
     if acc_dict["cash"] < 0:
       acc_dict["cash"] = 0.0
-    save_data(st.session_state.app_Data)
+    save_data(st.session_state.app_data)
     st.success("적용되었습니다!")
     st.rerun()
 
@@ -184,8 +184,9 @@ with st.sidebar.expander(
   if st.button("현금 추가 반영"):
     acc_dict["cash"] += float(add_amount)
     acc_dict["initial_cash"] += float(add_amount)
-    save_data(st.session_state.app_Data)
-    st.success(f"{add_amount:,.0f원이 추가되었습니다!")
+    save_data(st.session_state.app_data)
+    # 💡 수정된 부분: 닫는 중괄호 누락 오류 해결 완료
+    st.success(f"{add_amount:,.0f}원이 추가되었습니다!")
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -194,7 +195,7 @@ if st.sidebar.button(f"🚨 현재 계좌 [{current_acc_name}] 초기화"):
   acc_dict["initial_cash"] = 10000000.0
   acc_dict["portfolio"] = {}
   acc_dict["history"] = []
-  save_data(st.session_state.app_Data)
+  save_data(st.session_state.app_data)
   st.success("현재 계좌가 초기화되었습니다!")
   st.rerun()
 
@@ -394,7 +395,7 @@ with tab2:
               "가격": execution_price,
               "메모": memo_input,
           })
-          save_data(st.session_state.app_Data)
+          save_data(st.session_state.app_data)
           st.success(
               f"[{current_acc_name}] [{stock_name_input}] 가격"
               f" {execution_price:,.2f}원으로 {shares_to_buy}주 매수 완료!"
@@ -554,7 +555,7 @@ with tab2:
                     "가격": execution_price,
                     "메모": memo_input,
                 })
-                save_data(st.session_state.app_Data)
+                save_data(st.session_state.app_data)
                 st.success(f"[{stock_name_input}] {shares_to_buy}주 매수 완료!")
                 st.rerun()
               else:
@@ -648,7 +649,7 @@ with tab2:
                 f" {total_profit_trade_krw:+,.0f}원)"
             ),
         })
-        save_data(st.session_state.app_Data)
+        save_data(st.session_state.app_data)
         st.success(
             f"[{stock_name}] {shares_to_sell}주 매도 완료! (실현 손익:"
             f" {format_krw(total_profit_trade_krw)})"
